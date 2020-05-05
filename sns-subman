@@ -23,7 +23,7 @@ class DryRun:
         )
 
 class SnsSubMan:
-    VERSION = "0.0.5"
+    VERSION = "1.0.0"
     APPNAME = "sns-subman"
 
     def __init__(self, config, endpoint_resolver, dry_run=False):
