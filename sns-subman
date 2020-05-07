@@ -21,6 +21,18 @@ class DryRun:
                 TopicArn, Protocol, Endpoint
             )
         )
+    def get_subscription_attributes(self, subscriptionArn):
+        logging.getLogger(SnsSubMan.APPNAME).info(
+            "[dry-run] AWS sns.get_subscription_attributes(subscriptionArn=%s)" % (
+                subscriptionArn
+            )
+        )
+    def set_subscription_attributes(self, subscriptionArn, attributeName, attributeValue):
+           logging.getLogger(SnsSubMan.APPNAME).info(
+               "[dry-run] AWS sns.set_subscription_attributes(subscriptionArn=%s, AttributeName=%s, AttributeValue=%s)" % (
+                   subscriptionArn, attributeName, attributeValue
+               )
+           )
 
 class SnsSubMan:
     VERSION = "1.0.0"
@@ -39,6 +51,29 @@ class SnsSubMan:
 
         for topicName in config['subscriptions']:
             self.create_topic(NameParser.parse(topicName), config['subscriptions'][topicName]),
+
+
+    def get_subscription_attributes(self, subscriptionArn):
+        if self.dry_run:
+            sns = DryRun()
+        else:
+            sns = boto3.client('sns', endpoint_url=self.endpoint_resolver['sns'])
+
+        return sns.get_subscription_attributes(
+            SubscriptionArn=subscriptionArn
+        )
+
+    def set_subscription_attributes(self, subscriptionArn, attributeName, attributeValue):
+        if self.dry_run:
+            sns = DryRun()
+        else:
+            sns = boto3.client('sns', endpoint_url=self.endpoint_resolver['sns'])
+
+        return sns.set_subscription_attributes(
+            SubscriptionArn=subscriptionArn,
+            AttributeName=attributeName,
+            AttributeValue=attributeValue
+        )
 
     def create_topic(self, topicName, subscriptions):
         topicName = NameParser.parse(topicName)
@@ -73,7 +108,7 @@ class SnsSubMan:
             queueName = NameParser.parse(subscriptionDetails["queueName"])
             filterPolicy = subscriptionDetails["filterPolicy"]
         elif isinstance(subscriptionDetails, str):
-            queueName = subscriptionDetails
+            queueName = NameParser.parse(subscriptionDetails)
             filterPolicy = None
         else:
             self.logger.error('not expected data %s' % subscriptionDetails)
@@ -115,28 +150,30 @@ class SnsSubMan:
                                 }
                             }
                         }
-                    );
+                    )
 
             sqs.set_queue_attributes(QueueUrl=queue.url, Attributes={'Policy': json.dumps(policy)})
 
         if filterPolicy:
             self.logger.info("subscribing with filter policy %s" % json.dumps(filterPolicy))
-            self.sns.subscribe(
-                TopicArn=self.topic['TopicArn'],
-                Protocol='sqs',
-                Endpoint=endpoint,
-                Attributes={
-                    'FilterPolicy': json.dumps(filterPolicy)
-                }
-            )
-        else:
-            self.logger.info("subscribing without filter policy")
-            self.sns.subscribe(
+            subscribeResponse = self.sns.subscribe(
                 TopicArn=self.topic['TopicArn'],
                 Protocol='sqs',
                 Endpoint=endpoint
             )
 
+            setSubscriptionAttributesResponse = self.set_subscription_attributes(subscribeResponse['SubscriptionArn'], "FilterPolicy", filterPolicy)
+            self.logger.info("set_subscription_attributes response: %s" % setSubscriptionAttributesResponse)
+
+        else:
+            self.logger.info("subscribing without filter policy")
+            subscribeResponse =self.sns.subscribe(
+                TopicArn=self.topic['TopicArn'],
+                Protocol='sqs',
+                Endpoint=endpoint
+            )
+        self.logger.info("Subscribe response: %s" % subscribeResponse)
+        self.logger.info("Get Subscription Attributes: %s" % self.get_subscription_attributes(subscribeResponse['SubscriptionArn']))
 
     def subscribe_http(self, endpoint, protocol='http'):
         endpoint_url = self.endpoint_resolver[endpoint[0]] + endpoint[1]
